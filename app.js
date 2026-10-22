@@ -192,9 +192,6 @@ function viewHome() {
       <div class="kpi"><b>30 นาที</b><span>รับงานก่อนส่งต่อผู้ดูแล</span></div>
       <div class="kpi"><b>3 สถานะ</b><span>รอ · กำลังทำ · เสร็จ แยกด้วยสี</span></div>
     </div>
-    <section class="card flat"><div class="h">SDG ที่เกี่ยวข้อง</div><div class="stack">
-      <div class="sdg"><b style="background:#f59a23">11</b><span>ทำให้เมืองและการตั้งถิ่นฐานของมนุษย์มีความครอบคลุม ปลอดภัย ยืดหยุ่น และยั่งยืน</span></div>
-      <div class="sdg"><b style="background:#b8862b">12</b><span>สร้างหลักประกันให้มีแบบแผนการผลิตและการบริโภคที่ยั่งยืน</span></div></div></section>
   </aside></div>`;
 }
 
