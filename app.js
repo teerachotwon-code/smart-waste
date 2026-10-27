@@ -195,6 +195,53 @@ function viewHome() {
   </aside></div>`;
 }
 
+
+/* ---------- QR เป็นรูปภาพจริง (สร้างด้วย qrcode-generator, อ่านด้วย jsQR) ---------- */
+const QR_PREFIX = 'SMARTWASTE:';
+const qrCache = {};
+function qrImg(binId, scale = 8) {
+  const key = binId + scale;
+  if (qrCache[key]) return qrCache[key];
+  try {
+    const q = qrcode(0, 'M'); q.addData(QR_PREFIX + binId); q.make();
+    qrCache[key] = q.createDataURL(scale, 2); /* data:image/gif */
+  } catch (e) { qrCache[key] = ''; }
+  return qrCache[key];
+}
+function decodeQrFile(file, cb) {
+  if (!file) return;
+  const img = new Image(), url = URL.createObjectURL(file);
+  img.onload = () => {
+    try {
+      const max = 900, k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, c.width, c.height);
+      const px = ctx.getImageData(0, 0, c.width, c.height);
+      const r = window.jsQR ? jsQR(px.data, c.width, c.height, { inversionAttempts: 'attemptBoth' }) : null;
+      cb(r ? r.data : null);
+    } catch (e) { cb(null); }
+    URL.revokeObjectURL(url);
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); cb(null); };
+  img.src = url;
+}
+/* พิกัดจำลองจากตำแหน่งบนแผนที่ (ใกล้ มหาวิทยาลัย) */
+const geo = b => ({ lat: (16.2476 + (200 - b.y) * 0.000009).toFixed(5), lng: (103.2580 + (b.x - 200) * 0.0000094).toFixed(5) });
+function locMapSvg(bin) {
+  const mx = Math.min(Math.max(bin.x, 20), 380), my = Math.min(Math.max(bin.y, 20), 380);
+  const near = BINS.filter(o => o.id !== bin.id).map(o => `<circle cx="${o.x}" cy="${o.y}" r="5" fill="var(--muted)" opacity=".45"/>`).join('');
+  return `<svg viewBox="0 0 400 220" role="img" aria-label="แผนที่ตำแหน่งที่แจ้ง ${esc(bin.b)}">
+    <defs><pattern id="lg" width="25" height="25" patternUnits="userSpaceOnUse"><path d="M25 0H0V25" fill="none" stroke="var(--line)" stroke-width="1"/></pattern></defs>
+    <rect width="400" height="220" fill="url(#lg)"/>
+    <svg x="0" y="0" width="400" height="220" viewBox="0 ${Math.max(0, Math.min(my - 110, 180))} 400 220" preserveAspectRatio="xMidYMid slice">
+      ${near}
+      <circle cx="${ME.x}" cy="${ME.y}" r="18" fill="var(--teal)" opacity=".15"/>
+      <circle cx="${bin.x}" cy="${bin.y}" r="30" fill="var(--teal)" opacity=".18"/>
+      <path transform="translate(${bin.x - 18} ${bin.y - 40}) scale(1.5)" d="M12 21s7-6.2 7-11.5A7 7 0 005 9.5C5 14.8 12 21 12 21z" fill="var(--red)" stroke="#fff" stroke-width="1.4"/>
+      <circle cx="${bin.x}" cy="${bin.y - 23}" r="4" fill="#fff"/>
+    </svg></svg>`;
+}
+
 function qrSvg(seedN) {
   let s = seedN, cells = '';
   const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
@@ -206,15 +253,25 @@ function qrSvg(seedN) {
 }
 function viewScan() {
   const sc = state.scanned ? binById(state.scanned) : null;
+  const shown = sc || binById(state.qrPreview || BINS[0].id);
+  const err = state.scanErr ? `<p class="err" role="alert" style="text-align:center">${esc(state.scanErr)}</p>` : '';
   return `<div class="grid2"><div class="stack">
     <section class="card"><div class="h">สแกน QR ที่ถังขยะ</div>
-      <div class="cam ${sc ? 'ok' : ''}"><div class="frame">${qrSvg(7)}<div class="line"></div></div>
-        ${sc ? `<div class="scanok"><b style="color:var(--green-ink)">✓ อ่าน QR สำเร็จ</b><br><span class="mono">${sc.id}</span> · ${esc(sc.b)}<br><span class="small muted">${esc(sc.spot)} · ถัง${TYPES[sc.type]} (${TYPE_COLOR[sc.type]})</span></div>`
-          : '<div class="hint">เล็ง QR ให้อยู่ในกรอบ ระบบอ่านให้อัตโนมัติ</div>'}</div>
-      <p class="small muted" style="margin-top:12px;text-align:center">เว็บต้นแบบนี้ไม่เปิดกล้องจริง เลือกถังจากรายการด้านขวาเพื่อจำลองการสแกน</p>
+      <div class="qrbox">
+        <div class="qrbig"><img src="${qrImg(shown.id, 10)}" alt="รูป QR ของถัง ${shown.id}"></div>
+        <div class="small" style="text-align:center"><b class="mono">${shown.id}</b><br><span class="muted">${esc(shown.b)} · ${esc(shown.spot)} · ${typeDot(shown.type)}${TYPES[shown.type]}</span></div>
+        ${sc ? `<div class="scanok" style="position:static;width:100%"><b style="color:var(--green-ink)">✓ อ่าน QR จากรูปสำเร็จ</b><br><span class="mono">${sc.id}</span> · ${esc(sc.b)}</div>` : ''}
+        ${err}
+        <div class="qracts">
+          <label class="btn primary" for="qrFile">ส่งรูป QR (เลือกรูป / ถ่ายรูป)</label>
+          <input type="file" id="qrFile" accept="image/*" capture="environment" hidden>
+          <a class="btn" href="${qrImg(shown.id, 12)}" download="${shown.id}.gif">บันทึกรูป QR นี้</a>
+        </div>
+      </div>
+      <p class="small muted" style="margin-top:12px;text-align:center">ถ่ายรูป QR ที่ติดบนถัง หรือเลือกรูป QR จากเครื่อง ระบบจะอ่านรหัสถังจากรูปให้อัตโนมัติ</p>
       <div style="margin-top:12px"><button type="button" class="btn lg" data-act="manual">ไม่มี QR หรือ QR ชำรุด เลือกสถานที่เอง</button></div></section></div>
-    <section class="card"><div class="h">จำลองการสแกน QR ของถัง</div><div class="list">
-      ${BINS.map(b => `<button type="button" class="binrow" data-act="scan" data-bin="${b.id}"><span class="qr">${ico('qr')}</span>
+    <section class="card"><div class="h">รูป QR ของแต่ละถัง (แตะเพื่อดูและส่งรูปจำลอง)</div><div class="list">
+      ${BINS.map(b => `<button type="button" class="binrow" data-act="scan" data-bin="${b.id}"><span class="qr"><img class="qrimg" src="${qrImg(b.id, 4)}" alt="QR ${b.id}"></span>
         <span style="min-width:0"><b class="mono">${b.id}</b><br><span class="small muted">${esc(b.b)} · ${esc(b.spot)} · ${typeDot(b.type)}${TYPES[b.type]}</span></span></button>`).join('')}
     </div></section></div>`;
 }
@@ -241,7 +298,9 @@ function viewReport() {
         <input type="file" id="fPhoto" accept="image/*" capture="environment" hidden>
         <button type="button" class="btn sm" data-act="samplePhoto" style="align-self:center">ใช้รูปตัวอย่าง</button></div></div>
     <div class="field"><span class="lab">ตำแหน่ง</span>
-      <div class="gps">${ico('pin')}<span>ระบุตำแหน่งแล้ว ±8 ม. <span class="muted">(จำลอง)</span></span></div></div>
+      <div class="gps">${ico('pin')}<div class="gt"><b>${esc(bin.b)}</b><span>${esc(bin.spot)} · ${typeDot(bin.type)}ถัง${TYPES[bin.type]}</span>
+        <span class="mono muted">${geo(bin).lat}, ${geo(bin).lng}</span><span class="small muted">ความแม่นยำประมาณ ±8 ม. (พิกัดจำลอง)</span></div></div>
+      <div class="locmap">${locMapSvg(bin)}</div></div>
     <p class="err" role="alert" id="fErr">${esc(d.err)}</p>
     <button type="submit" class="btn primary lg">ส่งแจ้งปัญหา</button></form>
     <aside class="stack"><section class="card flat"><div class="h">ขั้นตอนหลังส่ง</div>
@@ -594,6 +653,7 @@ document.addEventListener('click', e => {
     case 'nav': if (d.tab === 'report') { state.draft = null; } go(d.tab === 'report' ? 'scan' : d.tab); break;
     case 'tab': if (d.tab === 'report') { state.draft = null; go('scan'); } else go(d.tab); break;
     case 'scan': {
+      state.scanErr = ''; state.qrPreview = d.bin;
       const tok = ++scanTok; state.tab = 'scan'; state.scanned = d.bin; render(); window.scrollTo(0, 0);
       setTimeout(() => { if (tok !== scanTok || state.tab !== 'scan') return; state.draft = newDraft(d.bin, true); state.scanned = null; state.tab = 'report'; render(); window.scrollTo(0, 0); }, 900);
       break; }
@@ -650,6 +710,12 @@ document.addEventListener('change', e => {
   const id = e.target.id, d = state.draft;
   if (id === 'fBuilding') { d.building = e.target.value; d.bin = binsOf(d.building)[0].id; d.qr = false; render(); }
   else if (id === 'fBin') { d.bin = e.target.value; d.qr = false; render(); }
+  else if (id === 'qrFile') { decodeQrFile(e.target.files[0], txt => {
+    const bid = txt && txt.startsWith(QR_PREFIX) ? txt.slice(QR_PREFIX.length) : null;
+    if (bid && binById(bid)) { e.target.value = ''; const tok = ++scanTok; state.scanErr = ''; state.scanned = bid; render();
+      setTimeout(() => { if (tok !== scanTok || state.tab !== 'scan') return; state.draft = newDraft(bid, true); state.scanned = null; state.tab = 'report'; render(); window.scrollTo(0, 0); }, 900); }
+    else { state.scanErr = txt ? 'QR นี้ไม่ใช่ QR ของถังในระบบ' : 'อ่าน QR จากรูปไม่ได้ ลองถ่ายใหม่ให้เห็น QR ชัดและเต็มกรอบ หรือเลือกสถานที่เอง'; render(); }
+  }); }
   else if (id === 'fPhoto') readPhoto(e.target.files[0], u => { d.photo = u; d.err = ''; render(); });
   else if (id === 'jPhoto') readPhoto(e.target.files[0], u => { state.jobAfter = u; state.jobErr = ''; render(); });
   else if (id === 'zoneSel') { state.zone = e.target.value; render(); }
